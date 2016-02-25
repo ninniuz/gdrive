@@ -8,6 +8,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net/http"
+	"encoding/json"
 	"os"
 	"path/filepath"
 )
@@ -15,6 +16,7 @@ import (
 const ClientId = "367116221053-7n0vf5akeru7on6o2fjinrecpdoe99eg.apps.googleusercontent.com"
 const ClientSecret = "1qsNodXNaWq1mQuBjUjmvhoO"
 const TokenFilename = "token_v2.json"
+const ConfigFilename = "config.json"
 const DefaultCacheFileName = "file_cache.json"
 
 func listHandler(ctx cli.Context) {
@@ -323,22 +325,61 @@ func aboutExportHandler(ctx cli.Context) {
 	checkErr(err)
 }
 
+type ClientData struct {
+	ClientId string `json:"client_id"`
+	ClientSecret string `json:"client_secret"`
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	if err == nil {
+		return true
+	}
+	return false
+}
+
+func ReadOauthClientConfig(path string) (*ClientData, bool, error) {
+	if !fileExists(path) {
+		return nil, false, nil
+	}
+
+	content, err := ioutil.ReadFile(path)
+	if err != nil {
+		return nil, true, err
+	}
+	clientData := &ClientData{}
+	return clientData, true, json.Unmarshal(content, clientData)
+}
+
 func getOauthClient(args cli.Arguments) (*http.Client, error) {
+
+	configDir := getConfigDir(args)
+
+	clientConfigPath := ConfigFilePath(configDir, ConfigFilename)
+	clientData, _, err := ReadOauthClientConfig(clientConfigPath)
+
 	if args.String("refreshToken") != "" && args.String("accessToken") != "" {
 		ExitF("Access token not needed when refresh token is provided")
 	}
 
+	clientId := ClientId
+	clientSecret := ClientSecret
+
+	if err == nil {
+		clientId = clientData.ClientId
+		clientSecret = clientData.ClientSecret
+	}
+
 	if args.String("refreshToken") != "" {
-		return auth.NewRefreshTokenClient(ClientId, ClientSecret, args.String("refreshToken")), nil
+		return auth.NewRefreshTokenClient(clientId, clientSecret, args.String("refreshToken")), nil
 	}
 
 	if args.String("accessToken") != "" {
-		return auth.NewAccessTokenClient(ClientId, ClientSecret, args.String("accessToken")), nil
+		return auth.NewAccessTokenClient(clientId, clientSecret, args.String("accessToken")), nil
 	}
 
-	configDir := getConfigDir(args)
 	tokenPath := ConfigFilePath(configDir, TokenFilename)
-	return auth.NewFileSourceClient(ClientId, ClientSecret, tokenPath, authCodePrompt)
+	return auth.NewFileSourceClient(clientId, clientSecret, tokenPath, authCodePrompt)
 }
 
 func getConfigDir(args cli.Arguments) string {
